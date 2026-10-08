@@ -1,0 +1,5 @@
+[Unit]
+Description=cuak watchdog (lapis terluar)
+[Service]
+Type=oneshot
+ExecStart=/usr/local/lib/cuak/cuak-watchdog.sh

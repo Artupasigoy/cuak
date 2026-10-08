@@ -1,0 +1,77 @@
+#!/bin/bash
+# cuak: CLI penjaga sesi SSH human-like. Menu: add | status | logs | remove | test | exit.
+DEVDIR=/etc/cuak/devices; KEYDIR=/etc/cuak/keys; LOGDIR=/var/log/cuak
+mkdir -p "$DEVDIR" "$KEYDIR" "$LOGDIR" 2>/dev/null
+need_root(){ [ "$(id -u)" = 0 ] || { echo "ERROR: jalankan dengan sudo."; return 1; }; }
+valid_alias(){ [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]]; }
+unit(){ echo "cuak-holder@$1.service"; }
+cmd_add(){
+  need_root || return 1
+  read -rp "alias device: " a
+  valid_alias "$a" || { echo "ERROR: alias hanya huruf-kecil/angka/strip."; return 1; }
+  [ -f "$DEVDIR/$a.conf" ] && { echo "ERROR: device '$a' sudah ada. Pakai remove dulu atau nama lain."; return 1; }
+  read -rp "host/ip [127.0.0.1]: " h; h=${h:-127.0.0.1}
+  read -rp "port [22]: " p; p=${p:-22}
+  read -rp "user [ubuntu]: " u; u=${u:-ubuntu}
+  read -rp "path private key [~/.ssh/id_rsa]: " k; k=${k:-~/.ssh/id_rsa}; k=${k/#\~/$HOME}
+  [ -f "$k" ] || { echo "ERROR: key '$k' tidak ada."; return 1; }
+  echo "-- test koneksi (BatchMode, 15s) --"
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p "$p" -i "$k" "$u@$h" true 2>&1; then
+    echo "ERROR: koneksi gagal. Cek key/host, atau jalankan: ssh-copy-id -i $k $u@$h"
+    return 1
+  fi
+  cp "$k" "$KEYDIR/$a"; chmod 600 "$KEYDIR/$a"
+  printf 'HOST=%s\nPORT=%s\nUSER=%s\nKEY=%s\nPING1=1.1.1.1\nPING2=8.8.8.8\n' "$h" "$p" "$u" "$KEYDIR/$a" >"$DEVDIR/$a.conf"
+  chmod 600 "$DEVDIR/$a.conf"
+  systemctl enable "$(unit "$a")" >/dev/null 2>&1
+  read -rp "start sekarang? [Y/n]: " s; [[ "$s" =~ ^[Nn] ]] || systemctl start "$(unit "$a")"
+  echo "OK: device '$a' tersimpan + auto-start reboot aktif."
+}
+cmd_status(){
+  printf '%-14s %-8s %-12s %s\n' ALIAS UNIT LAST-SEEN DETAIL
+  for c in "$DEVDIR"/*.conf; do
+    [ -f "$c" ] || { echo "(belum ada device)"; return 0; }
+    a=$(basename "$c" .conf); u=$(unit "$a"); log="$LOGDIR/$a.log"
+    st=$(systemctl is-active "$u" 2>/dev/null)
+    last="belum-pernah"; age="-"
+    if [ -f "$log" ]; then last=$(tail -n1 "$log" | cut -c1-60); age=$(($(date +%s)-$(stat -c %Y "$log")))
+      age="${age}s-lalu"; fi
+    printf '%-14s %-8s %-12s %s\n' "$a" "$st" "$age" "$last"
+  done
+}
+cmd_logs(){ a="${1:-}"; [ -z "$a" ] && read -rp "alias: " a
+  [ -f "$LOGDIR/$a.log" ] || { echo "ERROR: tidak ada log '$a'."; return 1; }
+  tail -n 30 "$LOGDIR/$a.log"; }
+cmd_remove(){ need_root || return 1; a="${1:-}"; [ -z "$a" ] && read -rp "alias: " a
+  [ -f "$DEVDIR/$a.conf" ] || { echo "ERROR: device '$a' tidak ada."; return 1; }
+  systemctl stop "$(unit "$a")" 2>/dev/null; systemctl disable "$(unit "$a")" >/dev/null 2>&1
+  rm -f "$DEVDIR/$a.conf" "$KEYDIR/$a"; echo "OK: '$a' berhenti + terhapus (log arsip di $LOGDIR/$a.log)."; }
+cmd_test(){ a="${1:-}"; [ -z "$a" ] && read -rp "alias: " a
+  # shellcheck disable=SC1090
+  [ -f "$DEVDIR/$a.conf" ] || { echo "ERROR: device '$a' tidak ada."; return 1; }
+  . "$DEVDIR/$a.conf"
+  echo "-- ssh true --"; time ssh -o BatchMode=yes -o ConnectTimeout=15 -p "$PORT" -i "$KEY" "$USER@$HOST" true && echo OK-ssh
+  echo "-- ping target human-sim --"; ping -c2 -W2 "$PING1"; ping -c2 -W2 "$PING2"; }
+cmd_doctor(){
+  ok=1
+  for b in ssh ping systemctl flock autossh; do
+    if command -v "$b" >/dev/null 2>&1; then echo "OK   $b: $(command -v "$b")";
+    elif [ "$b" = autossh ]; then echo "WARN autossh hilang (fallback ssh aktif). Jalankan installer untuk paksa install."; ok=0;
+    else echo "FAIL $b hilang. Jalankan installer."; ok=0; fi
+  done
+  [ -d /run/systemd/system ] && echo "OK   systemd" || { echo "FAIL bukan systemd"; ok=0; }
+  systemctl is-active -q cuak-watchdog.timer && echo "OK   watchdog timer aktif" || echo "WARN watchdog timer mati"
+  n=$(ls /etc/cuak/devices/*.conf 2>/dev/null | wc -l); echo "INFO $n device terdaftar"
+  return $((1-ok))
+}
+menu(){
+  while true; do
+    echo "=== cuak === [1]add device [2]status device [3]logs [4]remove [5]test [6]exit"
+    read -rp "pilih: " n
+    case "$n" in
+      1) cmd_add;; 2) cmd_status;; 3) cmd_logs;; 4) cmd_remove;; 5) cmd_test;;
+      6|exit|q) echo "bye."; break;; *) echo "pilihan 1-6.";;
+    esac
+  done
+}
+case "${1:-}" in ""|menu) menu;; doctor) cmd_doctor;; add) cmd_add;; status) cmd_status;; logs) cmd_logs "$2";; remove) cmd_remove "$2";; test) cmd_test "$2";; *) echo "pakai: cuak [add|status|logs|remove|test|doctor]"; exit 1;; esac

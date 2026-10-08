@@ -1,0 +1,11 @@
+[Unit]
+Description=cuak holder %i (autossh primer + ssh fallback)
+After=network-online.target
+Wants=network-online.target
+[Service]
+Type=simple
+ExecStart=/usr/local/lib/cuak/cuak-holder.sh %i
+Restart=always
+RestartSec=15
+[Install]
+WantedBy=multi-user.target
