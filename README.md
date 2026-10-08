@@ -18,6 +18,14 @@ sudo cuak
 `logs` · `remove` · `test` · `doctor` · `exit`.
 Tanpa TTY (pipe/script) otomatis jadi menu angka 1-7.
 
+## Isolasi antar device (saling tidak mempengaruhi)
+
+Unit, conf, key, known_hosts, log, lock masing-masing. `IdentitiesOnly`
+(cuma key sendiri, tanpa agent/default key lain), tanpa ControlMaster
+sharing, monitor autossh `-M 0` (tanpa port). Supervisi via PID + reap
+orphan bermarker key-path milik sendiri. Teruji: kill -9 autossh device A
+-> A pulih sendiri, B tanpa satu baris `putus` pun; remove A -> B tetap jalan.
+
 ## 4 lapis ketangguhan per device
 
 1. **autossh primer** (`GATETIME=0`, keepalive 60/3, `ConnectTimeout=15`, pty `-tt`)

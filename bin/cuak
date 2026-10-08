@@ -44,20 +44,21 @@ cmd_add(){
   valid_alias "$a" || { echo "GAGAL: alias tidak valid. Aturan: huruf kecil/angka/strip, contoh: vps-rumah."; return 0; }
   [ -f "$DEVDIR/$a.conf" ] && { echo "GAGAL: device '$a' sudah terdaftar. Hapus dulu via menu 4, atau pakai alias lain."; return 0; }
   echo "--- ringkasan: $a = $u@$h:$pt (key $k) ---"
-  echo "-- test koneksi (BatchMode, 15 dtk) --"
+  cp "$k" "$KEYDIR/$a"; chmod 600 "$KEYDIR/$a"
+  printf 'HOST=%s\nPORT=%s\nUSER=%s\nKEY=%s\nPING1=1.1.1.1\nPING2=8.8.8.8\n' "$h" "$pt" "$u" "$KEYDIR/$a" >"$DEVDIR/$a.conf"
+  chmod 600 "$DEVDIR/$a.conf"
+  echo "-- test koneksi dgn opsi IDENTIK produksi (BatchMode, 15 dtk) --"
   local out
-  if ! out=$(ssh -n -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p "$pt" -i "$k" "$u@$h" true 2>&1); then
+  if ! out=$(ssh -n -o BatchMode=yes -o IdentitiesOnly=yes -o UserKnownHostsFile="$KEYDIR/$a.hosts" -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p "$pt" -i "$KEYDIR/$a" "$u@$h" true 2>&1); then
     echo "GAGAL: koneksi ke $u@$h:$pt gagal."
     if grep -qiE "timed out|unreachable|no route to host" <<<"$out"; then
       echo "  sebab: host/port tak terjangkau. Cek IP, port $pt terbuka, dan firewall server."
     elif grep -qiE "denied|publickey|authentication|permission" <<<"$out"; then
       echo "  sebab: key ditolak server. Daftarkan dulu:"; echo "    ssh-copy-id -i $k $u@$h -p $pt"
     else echo "  detail: $(echo "$out" | head -n2)"; fi
+    rm -f "$DEVDIR/$a.conf" "$KEYDIR/$a" "$KEYDIR/$a.hosts"
     return 0
   fi
-  cp "$k" "$KEYDIR/$a"; chmod 600 "$KEYDIR/$a"
-  printf 'HOST=%s\nPORT=%s\nUSER=%s\nKEY=%s\nPING1=1.1.1.1\nPING2=8.8.8.8\n' "$h" "$pt" "$u" "$KEYDIR/$a" >"$DEVDIR/$a.conf"
-  chmod 600 "$DEVDIR/$a.conf"
   systemctl enable "$(unit "$a")" >/dev/null 2>&1
   read -rp "start sekarang? [Y/n]: " s || s=n; [[ "$s" =~ ^[Nn] ]] || systemctl start "$(unit "$a")"
   echo "SUKSES: device '$a' aktif. Rincian: holder autossh primer + fallback ssh, auto-start reboot ON, log di $LOGDIR/$a.log. Pantau via menu: 2 (status)."
@@ -87,7 +88,7 @@ cmd_test(){ a="${1:-}"; if [ -z "$a" ]; then ask "test device mana? (alias, cont
   # shellcheck disable=SC1090
   [ -f "$DEVDIR/$a.conf" ] || { echo "ERROR: device '$a' tidak ada."; return 1; }
   . "$DEVDIR/$a.conf"
-  echo "-- ssh true --"; time ssh -n -o BatchMode=yes -o ConnectTimeout=15 -p "$PORT" -i "$KEY" "$USER@$HOST" true && echo OK-ssh
+  echo "-- ssh true (opsi identik produksi) --"; time ssh -n -o BatchMode=yes -o IdentitiesOnly=yes -o UserKnownHostsFile="${KEY}.hosts" -o ConnectTimeout=15 -p "$PORT" -i "$KEY" "$USER@$HOST" true && echo OK-ssh
   echo "-- ping target human-sim --"; ping -c2 -W2 "$PING1"; ping -c2 -W2 "$PING2"; }
 cmd_doctor(){
   ok=1
