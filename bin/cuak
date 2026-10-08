@@ -5,26 +5,40 @@ mkdir -p "$DEVDIR" "$KEYDIR" "$LOGDIR" 2>/dev/null
 need_root(){ [ "$(id -u)" = 0 ] || { echo "ERROR: jalankan dengan sudo."; return 1; }; }
 valid_alias(){ [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]]; }
 unit(){ echo "cuak-holder@$1.service"; }
+ask(){ # ask "judul" "default" varname -> return 1 bila Esc (kembali)
+  local judul="$1" def="$2" __v="$3" val
+  echo "--- $judul ---"
+  if [ -n "$def" ]; then read -rp "> [default: $def | Esc=kembali]: " val || return 1; val=${val:-$def};
+  else read -rp "> [Esc=kembali]: " val || return 1; fi
+  if [[ "$val" == *$'\e'* ]]; then echo "(kembali)"; return 1; fi
+  printf -v "$__v" '%s' "$val"
+}
 cmd_add(){
   need_root || return 1
-  read -rp "alias device: " a
-  valid_alias "$a" || { echo "ERROR: alias hanya huruf-kecil/angka/strip."; return 1; }
-  [ -f "$DEVDIR/$a.conf" ] && { echo "ERROR: device '$a' sudah ada. Pakai remove dulu atau nama lain."; return 1; }
-  read -rp "host/ip [127.0.0.1]: " h; h=${h:-127.0.0.1}
-  read -rp "port [22]: " p; p=${p:-22}
-  read -rp "user [ubuntu]: " u; u=${u:-ubuntu}
-  read -rp "path private key [~/.ssh/id_rsa]: " k; k=${k:-~/.ssh/id_rsa}; k=${k/#\~/$HOME}
-  [ -f "$k" ] || { echo "ERROR: key '$k' tidak ada."; return 1; }
-  echo "-- test koneksi (BatchMode, 15s) --"
-  if ! ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p "$p" -i "$k" "$u@$h" true 2>&1; then
-    echo "ERROR: koneksi gagal. Cek key/host, atau jalankan: ssh-copy-id -i $k $u@$h"
-    return 1
+  echo "=== tambah device ==="
+  local hp h pt u k a
+  ask "langkah 1/4: IP dan port server SSH (contoh 192.168.1.10:22)" "" hp || return 0
+  if [[ "$hp" == *:* ]]; then h="${hp%:*}"; pt="${hp##*:}"; else h="$hp"; pt=22; fi
+  [[ "$pt" =~ ^[0-9]+$ ]] && [ "$pt" -ge 1 ] && [ "$pt" -le 65535 ] || { echo "ERROR: port '$pt' tidak valid."; return 0; }
+  [ -n "$h" ] || { echo "ERROR: IP/host kosong."; return 0; }
+  ask "langkah 2/4: user login SSH di server (contoh ubuntu)" "ubuntu" u || return 0
+  ask "langkah 3/4: path private key di mesin ini (contoh /home/pi/.ssh/id_rsa)" "$HOME/.ssh/id_rsa" k || return 0
+  k=${k/#\~/$HOME}
+  [ -f "$k" ] || { echo "ERROR: key '$k' tidak ada."; return 0; }
+  ask "langkah 4/4: alias device (contoh vps-rumah)" "" a || return 0
+  valid_alias "$a" || { echo "ERROR: alias hanya huruf-kecil/angka/strip."; return 0; }
+  [ -f "$DEVDIR/$a.conf" ] && { echo "ERROR: device '$a' sudah ada. Pakai remove dulu atau nama lain."; return 0; }
+  echo "--- ringkasan: $a = $u@$h:$pt (key $k) ---"
+  echo "-- test koneksi (BatchMode, 15 dtk) --"
+  if ! ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p "$pt" -i "$k" "$u@$h" true 2>&1; then
+    echo "ERROR: koneksi gagal. Cek key/host, atau jalankan: ssh-copy-id -i $k $u@$h -p $pt"
+    return 0
   fi
   cp "$k" "$KEYDIR/$a"; chmod 600 "$KEYDIR/$a"
-  printf 'HOST=%s\nPORT=%s\nUSER=%s\nKEY=%s\nPING1=1.1.1.1\nPING2=8.8.8.8\n' "$h" "$p" "$u" "$KEYDIR/$a" >"$DEVDIR/$a.conf"
+  printf 'HOST=%s\nPORT=%s\nUSER=%s\nKEY=%s\nPING1=1.1.1.1\nPING2=8.8.8.8\n' "$h" "$pt" "$u" "$KEYDIR/$a" >"$DEVDIR/$a.conf"
   chmod 600 "$DEVDIR/$a.conf"
   systemctl enable "$(unit "$a")" >/dev/null 2>&1
-  read -rp "start sekarang? [Y/n]: " s; [[ "$s" =~ ^[Nn] ]] || systemctl start "$(unit "$a")"
+  read -rp "start sekarang? [Y/n]: " s || s=n; [[ "$s" =~ ^[Nn] ]] || systemctl start "$(unit "$a")"
   echo "OK: device '$a' tersimpan + auto-start reboot aktif."
 }
 cmd_status(){
@@ -39,14 +53,16 @@ cmd_status(){
     printf '%-14s %-8s %-12s %s\n' "$a" "$st" "$age" "$last"
   done
 }
-cmd_logs(){ a="${1:-}"; [ -z "$a" ] && read -rp "alias: " a
+cmd_logs(){ a="${1:-}"; if [ -z "$a" ]; then ask "log device mana? (alias, contoh vps-rumah)" "" a || return 0; fi
   [ -f "$LOGDIR/$a.log" ] || { echo "ERROR: tidak ada log '$a'."; return 1; }
   tail -n 30 "$LOGDIR/$a.log"; }
-cmd_remove(){ need_root || return 1; a="${1:-}"; [ -z "$a" ] && read -rp "alias: " a
+cmd_remove(){ need_root || return 1; a="${1:-}"; if [ -z "$a" ]; then ask "hapus device mana? (alias, contoh vps-rumah)" "" a || return 0; fi
+  local cfm; ask "ketik YA untuk hapus device '$a'" "" cfm || return 0
+  [[ "$cfm" =~ ^[Yy][Aa]$ ]] || { echo "(batal hapus)"; return 0; }
   [ -f "$DEVDIR/$a.conf" ] || { echo "ERROR: device '$a' tidak ada."; return 1; }
   systemctl stop "$(unit "$a")" 2>/dev/null; systemctl disable "$(unit "$a")" >/dev/null 2>&1
   rm -f "$DEVDIR/$a.conf" "$KEYDIR/$a"; echo "OK: '$a' berhenti + terhapus (log arsip di $LOGDIR/$a.log)."; }
-cmd_test(){ a="${1:-}"; [ -z "$a" ] && read -rp "alias: " a
+cmd_test(){ a="${1:-}"; if [ -z "$a" ]; then ask "test device mana? (alias, contoh vps-rumah)" "" a || return 0; fi
   # shellcheck disable=SC1090
   [ -f "$DEVDIR/$a.conf" ] || { echo "ERROR: device '$a' tidak ada."; return 1; }
   . "$DEVDIR/$a.conf"
@@ -73,8 +89,8 @@ pick_idx(){ # $1..$n = item; echo index terpilih (0-based), atau 255 bila Esc/q
   while true; do
     tput cuu "$n" 2>/dev/null
     for i in "${!items[@]}"; do
-      if [ "$i" = "$sel" ]; then printf '\e[7m> %s\e[0m\e[K\n' "${items[$i]}";
-      else printf '  %s\e[K\n' "${items[$i]}"; fi
+      if [ "$i" = "$sel" ]; then printf '\e[7m> %d. %s\e[0m\e[K\n' "$((i+1))" "${items[$i]}";
+      else printf '  %d. %s\e[K\n' "$((i+1))" "${items[$i]}"; fi
     done
     IFS= read -rsn1 k || break
     if [ "$k" = $'\e' ]; then
@@ -94,14 +110,14 @@ menu(){
   if [ ! -t 0 ] || ! command -v tput >/dev/null || [ "${TERM:-dumb}" = dumb ]; then
     while true; do
       echo "=== cuak === [1]add [2]status [3]logs [4]remove [5]test [6]doctor [7]exit"
-      read -rp "pilih: " m
+      read -rp "pilih: " m || { echo "bye."; break; }
       case "$m" in 1)cmd_add;;2)cmd_status;;3)cmd_logs;;4)cmd_remove;;5)cmd_test;;6)cmd_doctor;;7|exit|q)echo bye.;break;;*)echo "pilihan 1-7.";;esac
     done; return
   fi
   while true; do
     idx=$(pick_idx "${items[@]}") || { echo "bye."; break; }
     case "$idx" in 0)cmd_add;;1)cmd_status;;2)cmd_logs;;3)cmd_remove;;4)cmd_test;;5)cmd_doctor;;6)echo "bye.";break;;esac
-    read -rp "[Enter lanjut]" _
+    read -rp "[Enter lanjut]" _ < /dev/tty || true
   done
   tput cnorm 2>/dev/null
 }
