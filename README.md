@@ -12,10 +12,11 @@ sudo bash install.sh
 sudo cuak
 ```
 
-## Menu
+## Menu (navigasi panah atas/bawah + Enter, `q` batal)
 
-`1 add device` (duplikat ditolak, koneksi dites dulu) · `2 status device` ·
-`logs` · `remove` · `test` · `doctor` · `exit`
+`add device` (duplikat ditolak, koneksi dites dulu) · `status device` ·
+`logs` · `remove` · `test` · `doctor` · `exit`.
+Tanpa TTY (pipe/script) otomatis jadi menu angka 1-7.
 
 ## 4 lapis ketangguhan per device
 

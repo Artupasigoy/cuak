@@ -64,14 +64,45 @@ cmd_doctor(){
   n=$(ls /etc/cuak/devices/*.conf 2>/dev/null | wc -l); echo "INFO $n device terdaftar"
   return $((1-ok))
 }
-menu(){
+pick_idx(){ # $1..$n = item; echo index terpilih (0-based), atau 255 bila Esc/q
+  local -a items=("$@"); local n=${#items[@]} sel=0 k k2 i
+  exec 3>&1 1>&2  # UI -> stderr, hasil -> stdout
+  tput civis 2>/dev/null
+  printf '=== cuak === (atas/bawah + Enter)\n'
+  for i in "${!items[@]}"; do printf '\n'; done
   while true; do
-    echo "=== cuak === [1]add device [2]status device [3]logs [4]remove [5]test [6]exit"
-    read -rp "pilih: " n
-    case "$n" in
-      1) cmd_add;; 2) cmd_status;; 3) cmd_logs;; 4) cmd_remove;; 5) cmd_test;;
-      6|exit|q) echo "bye."; break;; *) echo "pilihan 1-6.";;
-    esac
+    tput cuu "$n" 2>/dev/null
+    for i in "${!items[@]}"; do
+      if [ "$i" = "$sel" ]; then printf '\e[7m> %s\e[0m\e[K\n' "${items[$i]}";
+      else printf '  %s\e[K\n' "${items[$i]}"; fi
+    done
+    IFS= read -rsn1 k || break
+    if [ "$k" = $'\e' ]; then
+      IFS= read -rsn2 -t 0.3 k2 2>/dev/null || k2=""
+      case "$k2" in
+        "[A"|"[D") sel=$(( (sel-1+n)%n ));;
+        "[B"|"[C") sel=$(( (sel+1)%n ));;
+        "") tput cnorm 2>/dev/null; exec 3>&-; return 255;;
+      esac
+    elif [ -z "$k" ]; then tput cnorm 2>/dev/null; echo "$sel" >&3; exec 3>&-; return 0;
+    elif [ "$k" = q ]; then tput cnorm 2>/dev/null; exec 3>&-; return 255; fi
   done
+  tput cnorm 2>/dev/null; exec 3>&- 2>/dev/null; return 255
+}
+menu(){
+  local items=("add device" "status device" "logs" "remove" "test" "doctor" "exit") idx
+  if [ ! -t 0 ] || ! command -v tput >/dev/null || [ "${TERM:-dumb}" = dumb ]; then
+    while true; do
+      echo "=== cuak === [1]add [2]status [3]logs [4]remove [5]test [6]doctor [7]exit"
+      read -rp "pilih: " m
+      case "$m" in 1)cmd_add;;2)cmd_status;;3)cmd_logs;;4)cmd_remove;;5)cmd_test;;6)cmd_doctor;;7|exit|q)echo bye.;break;;*)echo "pilihan 1-7.";;esac
+    done; return
+  fi
+  while true; do
+    idx=$(pick_idx "${items[@]}") || { echo "bye."; break; }
+    case "$idx" in 0)cmd_add;;1)cmd_status;;2)cmd_logs;;3)cmd_remove;;4)cmd_test;;5)cmd_doctor;;6)echo "bye.";break;;esac
+    read -rp "[Enter lanjut]" _
+  done
+  tput cnorm 2>/dev/null
 }
 case "${1:-}" in ""|menu) menu;; doctor) cmd_doctor;; add) cmd_add;; status) cmd_status;; logs) cmd_logs "$2";; remove) cmd_remove "$2";; test) cmd_test "$2";; *) echo "pakai: cuak [add|status|logs|remove|test|doctor]"; exit 1;; esac
