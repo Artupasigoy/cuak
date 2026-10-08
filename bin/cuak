@@ -46,7 +46,7 @@ cmd_add(){
   echo "--- ringkasan: $a = $u@$h:$pt (key $k) ---"
   echo "-- test koneksi (BatchMode, 15 dtk) --"
   local out
-  if ! out=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p "$pt" -i "$k" "$u@$h" true 2>&1); then
+  if ! out=$(ssh -n -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p "$pt" -i "$k" "$u@$h" true 2>&1); then
     echo "GAGAL: koneksi ke $u@$h:$pt gagal."
     if grep -qiE "timed out|unreachable|no route to host" <<<"$out"; then
       echo "  sebab: host/port tak terjangkau. Cek IP, port $pt terbuka, dan firewall server."
@@ -87,7 +87,7 @@ cmd_test(){ a="${1:-}"; if [ -z "$a" ]; then ask "test device mana? (alias, cont
   # shellcheck disable=SC1090
   [ -f "$DEVDIR/$a.conf" ] || { echo "ERROR: device '$a' tidak ada."; return 1; }
   . "$DEVDIR/$a.conf"
-  echo "-- ssh true --"; time ssh -o BatchMode=yes -o ConnectTimeout=15 -p "$PORT" -i "$KEY" "$USER@$HOST" true && echo OK-ssh
+  echo "-- ssh true --"; time ssh -n -o BatchMode=yes -o ConnectTimeout=15 -p "$PORT" -i "$KEY" "$USER@$HOST" true && echo OK-ssh
   echo "-- ping target human-sim --"; ping -c2 -W2 "$PING1"; ping -c2 -W2 "$PING2"; }
 cmd_doctor(){
   ok=1
