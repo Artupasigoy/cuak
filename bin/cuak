@@ -2,7 +2,7 @@
 # cuak: CLI penjaga sesi SSH human-like. Menu: add | status | logs | remove | test | exit.
 DEVDIR=/etc/cuak/devices; KEYDIR=/etc/cuak/keys; LOGDIR=/var/log/cuak
 mkdir -p "$DEVDIR" "$KEYDIR" "$LOGDIR" 2>/dev/null
-need_root(){ [ "$(id -u)" = 0 ] || { echo "ERROR: jalankan dengan sudo."; return 1; }; }
+need_root(){ [ "$(id -u)" = 0 ] || { echo "GAGAL: butuh akses root. Jalankan: sudo cuak"; return 1; }; }
 valid_alias(){ [[ "$1" =~ ^[a-z0-9][a-z0-9-]{0,30}$ ]]; }
 unit(){ echo "cuak-holder@$1.service"; }
 ask(){ # ask "judul" "default" varname -> return 1 bila Esc (kembali)
@@ -19,19 +19,40 @@ cmd_add(){
   local hp h pt u k a
   ask "langkah 1/4: IP dan port server SSH (contoh 192.168.1.10:22)" "" hp || return 0
   if [[ "$hp" == *:* ]]; then h="${hp%:*}"; pt="${hp##*:}"; else h="$hp"; pt=22; fi
-  [[ "$pt" =~ ^[0-9]+$ ]] && [ "$pt" -ge 1 ] && [ "$pt" -le 65535 ] || { echo "ERROR: port '$pt' tidak valid."; return 0; }
-  [ -n "$h" ] || { echo "ERROR: IP/host kosong."; return 0; }
+  [[ "$pt" =~ ^[0-9]+$ ]] && [ "$pt" -ge 1 ] && [ "$pt" -le 65535 ] || { echo "GAGAL: port '$pt' tidak valid. Pakai angka 1-65535, contoh 192.168.1.10:22."; return 0; }
+  [ -n "$h" ] || { echo "GAGAL: IP/host kosong. Contoh: 192.168.1.10:22"; return 0; }
   ask "langkah 2/4: user login SSH di server (contoh ubuntu)" "ubuntu" u || return 0
-  ask "langkah 3/4: path private key di mesin ini (contoh /home/pi/.ssh/id_rsa)" "$HOME/.ssh/id_rsa" k || return 0
+  local defk=""
+  for cand in /root/.ssh/id_ed25519 /root/.ssh/id_rsa ${SUDO_USER:+/home/$SUDO_USER/.ssh/id_ed25519} ${SUDO_USER:+/home/$SUDO_USER/.ssh/id_rsa}; do
+    [ -f "$cand" ] && { defk="$cand"; break; }
+  done
+  [ -n "$defk" ] || defk="/root/.ssh/id_ed25519"
+  echo "  (praktik terbaik: service jalan sebagai root -> key root didahulukan; key disalin ke /etc/cuak/keys/ agar terisolasi per device)"
+  ask "langkah 3/4: path private key di mesin ini (contoh /home/pi/.ssh/id_rsa)" "$defk" k || return 0
   k=${k/#\~/$HOME}
-  [ -f "$k" ] || { echo "ERROR: key '$k' tidak ada."; return 0; }
+  if [ ! -f "$k" ]; then
+    echo "GAGAL: key '$k' tidak ditemukan."
+    local mk; ask "buatkan key ed25519 baru di '$k'? (Y/n)" "Y" mk || return 0
+    if [[ "$mk" =~ ^[Yy]$ ]]; then
+      mkdir -p "$(dirname "$k")"; ssh-keygen -t ed25519 -f "$k" -N "" -q && chmod 600 "$k" || { echo "GAGAL: ssh-keygen gagal."; return 0; }
+      echo "OK: key dibuat. WAJIB daftarkan ke server dulu:"; echo "  ssh-copy-id -i $k $u@$h -p $pt"
+      return 0
+    fi
+    echo "(kembali ke menu)"; return 0
+  fi
   ask "langkah 4/4: alias device (contoh vps-rumah)" "" a || return 0
-  valid_alias "$a" || { echo "ERROR: alias hanya huruf-kecil/angka/strip."; return 0; }
-  [ -f "$DEVDIR/$a.conf" ] && { echo "ERROR: device '$a' sudah ada. Pakai remove dulu atau nama lain."; return 0; }
+  valid_alias "$a" || { echo "GAGAL: alias tidak valid. Aturan: huruf kecil/angka/strip, contoh: vps-rumah."; return 0; }
+  [ -f "$DEVDIR/$a.conf" ] && { echo "GAGAL: device '$a' sudah terdaftar. Hapus dulu via menu 4, atau pakai alias lain."; return 0; }
   echo "--- ringkasan: $a = $u@$h:$pt (key $k) ---"
   echo "-- test koneksi (BatchMode, 15 dtk) --"
-  if ! ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p "$pt" -i "$k" "$u@$h" true 2>&1; then
-    echo "ERROR: koneksi gagal. Cek key/host, atau jalankan: ssh-copy-id -i $k $u@$h -p $pt"
+  local out
+  if ! out=$(ssh -o BatchMode=yes -o ConnectTimeout=15 -o StrictHostKeyChecking=accept-new -p "$pt" -i "$k" "$u@$h" true 2>&1); then
+    echo "GAGAL: koneksi ke $u@$h:$pt gagal."
+    if grep -qiE "timed out|unreachable|no route to host" <<<"$out"; then
+      echo "  sebab: host/port tak terjangkau. Cek IP, port $pt terbuka, dan firewall server."
+    elif grep -qiE "denied|publickey|authentication|permission" <<<"$out"; then
+      echo "  sebab: key ditolak server. Daftarkan dulu:"; echo "    ssh-copy-id -i $k $u@$h -p $pt"
+    else echo "  detail: $(echo "$out" | head -n2)"; fi
     return 0
   fi
   cp "$k" "$KEYDIR/$a"; chmod 600 "$KEYDIR/$a"
@@ -39,12 +60,12 @@ cmd_add(){
   chmod 600 "$DEVDIR/$a.conf"
   systemctl enable "$(unit "$a")" >/dev/null 2>&1
   read -rp "start sekarang? [Y/n]: " s || s=n; [[ "$s" =~ ^[Nn] ]] || systemctl start "$(unit "$a")"
-  echo "OK: device '$a' tersimpan + auto-start reboot aktif."
+  echo "SUKSES: device '$a' aktif. Rincian: holder autossh primer + fallback ssh, auto-start reboot ON, log di $LOGDIR/$a.log. Pantau via menu: 2 (status)."
 }
 cmd_status(){
   printf '%-14s %-8s %-12s %s\n' ALIAS UNIT LAST-SEEN DETAIL
   for c in "$DEVDIR"/*.conf; do
-    [ -f "$c" ] || { echo "(belum ada device)"; return 0; }
+    [ -f "$c" ] || { echo "(belum ada device. Tambah dulu via menu 1: add device)"; return 0; }
     a=$(basename "$c" .conf); u=$(unit "$a"); log="$LOGDIR/$a.log"
     st=$(systemctl is-active "$u" 2>/dev/null)
     last="belum-pernah"; age="-"
@@ -54,14 +75,14 @@ cmd_status(){
   done
 }
 cmd_logs(){ a="${1:-}"; if [ -z "$a" ]; then ask "log device mana? (alias, contoh vps-rumah)" "" a || return 0; fi
-  [ -f "$LOGDIR/$a.log" ] || { echo "ERROR: tidak ada log '$a'."; return 1; }
+  [ -f "$LOGDIR/$a.log" ] || { echo "GAGAL: belum ada log untuk '$a' (holder belum pernah jalan?)."; return 1; }
   tail -n 30 "$LOGDIR/$a.log"; }
 cmd_remove(){ need_root || return 1; a="${1:-}"; if [ -z "$a" ]; then ask "hapus device mana? (alias, contoh vps-rumah)" "" a || return 0; fi
   local cfm; ask "ketik YA untuk hapus device '$a'" "" cfm || return 0
   [[ "$cfm" =~ ^[Yy][Aa]$ ]] || { echo "(batal hapus)"; return 0; }
-  [ -f "$DEVDIR/$a.conf" ] || { echo "ERROR: device '$a' tidak ada."; return 1; }
+  [ -f "$DEVDIR/$a.conf" ] || { echo "GAGAL: device '$a' tidak terdaftar. Tambah dulu via menu 1."; return 1; }
   systemctl stop "$(unit "$a")" 2>/dev/null; systemctl disable "$(unit "$a")" >/dev/null 2>&1
-  rm -f "$DEVDIR/$a.conf" "$KEYDIR/$a"; echo "OK: '$a' berhenti + terhapus (log arsip di $LOGDIR/$a.log)."; }
+  rm -f "$DEVDIR/$a.conf" "$KEYDIR/$a"; echo "SUKSES: '$a' dihentikan + dihapus (unit off, auto-start off). Arsip log tetap ada di $LOGDIR/$a.log."; }
 cmd_test(){ a="${1:-}"; if [ -z "$a" ]; then ask "test device mana? (alias, contoh vps-rumah)" "" a || return 0; fi
   # shellcheck disable=SC1090
   [ -f "$DEVDIR/$a.conf" ] || { echo "ERROR: device '$a' tidak ada."; return 1; }
