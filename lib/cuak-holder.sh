@@ -10,7 +10,7 @@ LOG="/var/log/cuak/$ALIAS.log"
 [ -f "$CONF" ] || exit 0
 # shellcheck disable=SC1090
 . "$CONF"  # HOST PORT USER KEY PING1 PING2
-if [ -z "${HOST:-}" ] || ! [[ "${PORT:-22}" =~ ^[0-9]+$ ]] || [ -z "${USER:-}" ] || [ ! -f "${KEY:-}" ] || ! [[ "$HOST" =~ ^[A-Za-z0-9._:\[\]-]+$ ]] || ! [[ "$USER" =~ ^[A-Za-z0-9._-]+$ ]]; then
+if [ -z "${HOST:-}" ] || ! [[ "${PORT:-22}" =~ ^[0-9]+$ ]] || [ -z "${USER:-}" ] || [ ! -f "${KEY:-}" ] || ! [[ "$HOST" =~ ^[A-Za-z0-9._:-]+$ ]] || ! [[ "$USER" =~ ^[A-Za-z0-9._-]+$ ]]; then
   echo "$(date -u +%FT%TZ) [$ALIAS] conf rusak -> perbaiki via cuak remove+add" >>"$LOG"; exit 0
 fi
 exec 9>/run/cuak-holder-"$ALIAS".lock

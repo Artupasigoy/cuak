@@ -24,7 +24,7 @@ cmd_add(){
   elif [[ "$hp" == *:* ]]; then h="${hp%:*}"; pt="${hp##*:}"; else h="$hp"; pt=22; fi
   [[ "$pt" =~ ^[0-9]+$ ]] && [ "$pt" -ge 1 ] && [ "$pt" -le 65535 ] || { echo "GAGAL: port '$pt' tidak valid. Pakai angka 1-65535, contoh 192.168.1.10:22."; return 0; }
   [ -n "$h" ] || { echo "GAGAL: IP/host kosong. Contoh: 192.168.1.10:22"; return 0; }
-  [[ "$h" =~ ^[A-Za-z0-9._:\[\]-]+$ ]] || { echo "GAGAL: host '$h' mengandung karakter tak diizinkan."; return 0; }
+  [[ "$h" =~ ^[A-Za-z0-9._:-]+$ ]] || { echo "GAGAL: host '$h' mengandung karakter tak diizinkan."; return 0; }
   [[ "$u" =~ ^[A-Za-z0-9._-]+$ ]] || { echo "GAGAL: user '$u' tak valid (huruf/angka/._-)."; return 0; }
   ask "langkah 2/4: user login SSH di server (contoh ubuntu)" "ubuntu" u || return 0
   local defk=""
