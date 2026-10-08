@@ -12,5 +12,6 @@ $SUDO systemctl stop cuak-watchdog.timer 2>/dev/null || true
 $SUDO systemctl disable cuak-watchdog.timer 2>/dev/null || true
 $SUDO rm -f /usr/local/bin/cuak /usr/local/lib/cuak/*.sh /etc/systemd/system/cuak-holder@.service /etc/systemd/system/cuak-watchdog.*
 $SUDO rm -rf /etc/cuak /var/log/cuak
+$SUDO systemctl reset-failed "cuak-holder@*" 2>/dev/null || true
 $SUDO systemctl daemon-reload
 echo "cuak ter-uninstall bersih."

@@ -17,6 +17,7 @@ for b in autossh ssh ping systemctl flock; do
   command -v "$b" >/dev/null || { echo "FATAL: $b tetap hilang setelah install."; exit 1; }
   echo "  ok: $b"
 done
+[ -f "$REPO/bin/cuak" ] || { echo "FATAL: file repo tak lengkap di $REPO. Clone dulu: git clone https://github.com/Artupasigoy/cuak"; exit 1; }
 echo "[4/5] pasang file..."
 $SUDO mkdir -p /usr/local/bin /usr/local/lib/cuak /etc/cuak/devices /etc/cuak/keys /var/log/cuak
 $SUDO cp "$REPO/bin/cuak" /usr/local/bin/cuak
@@ -25,5 +26,8 @@ $SUDO cp "$REPO/systemd/cuak-holder@.service" "$REPO/systemd/cuak-watchdog.servi
 $SUDO chmod 755 /usr/local/bin/cuak /usr/local/lib/cuak/*.sh
 $SUDO systemctl daemon-reload
 $SUDO systemctl enable --now cuak-watchdog.timer
+for u in $($SUDO systemctl list-units --plain --no-legend 'cuak-holder@*.service' 2>/dev/null | awk '$2=="active"{print $1}'); do
+  echo "  restart $u (terapkan kode baru)"; $SUDO systemctl restart "$u"
+done
 echo "[5/5] doctor:"; $SUDO /usr/local/bin/cuak doctor || true
 echo "SELESAI. Jalankan: sudo cuak"

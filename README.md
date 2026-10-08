@@ -7,7 +7,7 @@ tercatat sebagai sesi `pts`.
 ## Install (3 baris, dependensi DIPAKSA install otomatis)
 
 ```bash
-git clone https://github.com/Artupasigoy/cuak && cd cuak
+git clone https://github.com/Artupasigoy/cuak && cd cuak  # butuh: git
 sudo bash install.sh
 sudo cuak
 ```
