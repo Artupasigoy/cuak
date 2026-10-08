@@ -18,7 +18,9 @@ cmd_add(){
   echo "=== tambah device ==="
   local hp h pt u k a
   ask "langkah 1/4: IP dan port server SSH (contoh 192.168.1.10:22)" "" hp || return 0
-  if [[ "$hp" == *:* ]]; then h="${hp%:*}"; pt="${hp##*:}"; else h="$hp"; pt=22; fi
+  if [[ "$hp" =~ ^\[(.+)\](:([0-9]+))?$ ]]; then h="${BASH_REMATCH[1]}"; pt="${BASH_REMATCH[3]:-22}"; # [::1]:22
+  elif [[ "$hp" == *::* || "$hp" == *:*:* ]]; then h="$hp"; pt=22; # IPv6 tanpa bracket
+  elif [[ "$hp" == *:* ]]; then h="${hp%:*}"; pt="${hp##*:}"; else h="$hp"; pt=22; fi
   [[ "$pt" =~ ^[0-9]+$ ]] && [ "$pt" -ge 1 ] && [ "$pt" -le 65535 ] || { echo "GAGAL: port '$pt' tidak valid. Pakai angka 1-65535, contoh 192.168.1.10:22."; return 0; }
   [ -n "$h" ] || { echo "GAGAL: IP/host kosong. Contoh: 192.168.1.10:22"; return 0; }
   ask "langkah 2/4: user login SSH di server (contoh ubuntu)" "ubuntu" u || return 0
@@ -59,7 +61,7 @@ cmd_add(){
     rm -f "$DEVDIR/$a.conf" "$KEYDIR/$a" "$KEYDIR/$a.hosts"
     return 0
   fi
-  systemctl enable "$(unit "$a")" >/dev/null 2>&1
+  systemctl enable "$(unit "$a")" >/dev/null 2>&1 || echo "WARN: auto-start reboot GAGAL disetel (cek template unit). Holder tetap bisa start manual." 
   read -rp "start sekarang? [Y/n]: " s || s=n; [[ "$s" =~ ^[Nn] ]] || systemctl start "$(unit "$a")"
   echo "SUKSES: device '$a' aktif. Rincian: holder autossh primer + fallback ssh, auto-start reboot ON, log di $LOGDIR/$a.log. Pantau via menu: 2 (status)."
 }
@@ -83,10 +85,10 @@ cmd_remove(){ need_root || return 1; a="${1:-}"; if [ -z "$a" ]; then ask "hapus
   [[ "$cfm" =~ ^[Yy][Aa]$ ]] || { echo "(batal hapus)"; return 0; }
   [ -f "$DEVDIR/$a.conf" ] || { echo "GAGAL: device '$a' tidak terdaftar. Tambah dulu via menu 1."; return 1; }
   systemctl stop "$(unit "$a")" 2>/dev/null; systemctl disable "$(unit "$a")" >/dev/null 2>&1
-  rm -f "$DEVDIR/$a.conf" "$KEYDIR/$a"; echo "SUKSES: '$a' dihentikan + dihapus (unit off, auto-start off). Arsip log tetap ada di $LOGDIR/$a.log."; }
+  rm -f "$DEVDIR/$a.conf" "$KEYDIR/$a" "$KEYDIR/$a.hosts"; pkill -f -- "-i $KEYDIR/$a($| )" 2>/dev/null; echo "SUKSES: '$a' dihentikan + dihapus (unit off, auto-start off). Arsip log tetap ada di $LOGDIR/$a.log."; }
 cmd_test(){ a="${1:-}"; if [ -z "$a" ]; then ask "test device mana? (alias, contoh vps-rumah)" "" a || return 0; fi
   # shellcheck disable=SC1090
-  [ -f "$DEVDIR/$a.conf" ] || { echo "ERROR: device '$a' tidak ada."; return 1; }
+  [ -f "$DEVDIR/$a.conf" ] || { echo "GAGAL: device '$a' tidak terdaftar. Tambah dulu via menu 1."; return 1; }
   . "$DEVDIR/$a.conf"
   echo "-- ssh true (opsi identik produksi) --"; time ssh -n -o BatchMode=yes -o IdentitiesOnly=yes -o UserKnownHostsFile="${KEY}.hosts" -o ConnectTimeout=15 -p "$PORT" -i "$KEY" "$USER@$HOST" true && echo OK-ssh
   echo "-- ping target human-sim --"; ping -c2 -W2 "$PING1"; ping -c2 -W2 "$PING2"; }

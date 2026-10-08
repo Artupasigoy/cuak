@@ -12,6 +12,7 @@ for conf in /etc/cuak/devices/*.conf; do
   fi
   log="/var/log/cuak/$a.log"
   [ -f "$log" ] || continue
+  if [ "$(wc -l <"$log")" -gt 5000 ]; then tail -n 2000 "$log" >"$log.tmp" && mv "$log.tmp" "$log"; fi
   age=$(($(date +%s)-$(stat -c %Y "$log")))
   if [ "$age" -gt 720 ]; then
     echo "$(date -u +%FT%TZ) [$a] watchdog: log diam ${age}s -> restart" >>"$log"

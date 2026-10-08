@@ -7,15 +7,18 @@
 ALIAS="${1:?alias kosong}"
 CONF="/etc/cuak/devices/$ALIAS.conf"
 LOG="/var/log/cuak/$ALIAS.log"
-[ -f "$CONF" ] || exit 1
+[ -f "$CONF" ] || exit 0
 # shellcheck disable=SC1090
 . "$CONF"  # HOST PORT USER KEY PING1 PING2
+if [ -z "${HOST:-}" ] || ! [[ "${PORT:-22}" =~ ^[0-9]+$ ]] || [ -z "${USER:-}" ] || [ ! -f "${KEY:-}" ]; then
+  echo "$(date -u +%FT%TZ) [$ALIAS] conf rusak -> perbaiki via cuak remove+add" >>"$LOG"; exit 0
+fi
 exec 9>/run/cuak-holder-"$ALIAS".lock
 flock -n 9 || exit 0  # anti double-start
 log(){ echo "$(date -u +%FT%TZ) [$ALIAS] $*" >>"$LOG"; }
 HOSTSFILE="${KEY}.hosts"
 SSH_OPTS=(-tt -o BatchMode=yes -o IdentitiesOnly=yes -o UserKnownHostsFile="$HOSTSFILE" -o ConnectTimeout=15 -o ServerAliveInterval=60 -o ServerAliveCountMax=3 -o StrictHostKeyChecking=accept-new -p "${PORT:-22}" -i "$KEY")
-REMOTE='while true;do ping -c2 -i1 -W2 '"${PING1:-1.1.1.1}"' >/dev/null 2>&1;echo "alive $(date -u +%FT%TZ)";sleep $((45+RANDOM%60));ping -c2 -i1 -W2 '"${PING2:-8.8.8.8}"' >/dev/null 2>&1;echo "cek $(date -u +%T)";sleep $((45+RANDOM%60));done'
+REMOTE='while true;do ping -c2 -i1 -W2 '"${PING1:-1.1.1.1}"' >/dev/null 2>&1;echo "alive $(date -u +%FT%TZ)";sleep $((45+($(date +%S)%60)));ping -c2 -i1 -W2 '"${PING2:-8.8.8.8}"' >/dev/null 2>&1;echo "cek $(date -u +%T)";sleep $((45+($(date +%S)%60)));done'
 reap(){ pkill -f -- "-i $KEY($| )" 2>/dev/null; sleep 2; }  # hanya milik device ini
 run_supervised(){ # $@ = argv sesi; set DT (durasi). Tak peduli pipe dipegang orphan.
   local T0 pid

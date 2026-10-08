@@ -3,7 +3,7 @@
 set -euo pipefail
 SUDO=""; [ "$(id -u)" = 0 ] || SUDO="sudo"
 for c in /etc/cuak/devices/*.conf; do
-  [ -f "$c" ] || break
+  [ -f "$c" ] || continue
   a=$(basename "$c" .conf)
   $SUDO systemctl stop "cuak-holder@$a.service" 2>/dev/null || true
   $SUDO systemctl disable "cuak-holder@$a.service" 2>/dev/null || true
